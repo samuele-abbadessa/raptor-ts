@@ -1,8 +1,10 @@
-import { Tree } from './tree_structures';
+import { Tree, SerializedTree } from './tree_structures';
 import { TreeBuilder, TreeBuilderConfig } from './tree_builder';
 import { ClusterTreeBuilder, ClusterTreeConfig } from './cluster_tree_builder';
 import { TreeRetriever, TreeRetrieverConfig } from './tree_retriever';
 import { BaseQAModel, GPT3TurboQAModel } from './models';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class RetrievalAugmentationConfig {
   treeBuilderConfig: TreeBuilderConfig | ClusterTreeConfig;
@@ -30,9 +32,8 @@ export class RetrievalAugmentation {
     config = config || new RetrievalAugmentationConfig();
     
     if (typeof tree === 'string') {
-      // Load from file - in TypeScript you'd use fs.readFileSync and JSON.parse
-      // This is a simplified version
-      throw new Error('Loading from file not implemented in this example');
+      // Load from file
+      this.tree = RetrievalAugmentation.load(tree);
     } else {
       this.tree = tree;
     }
@@ -124,12 +125,80 @@ export class RetrievalAugmentation {
     return answer;
   }
 
-  save(path: string): void {
+  /**
+   * Save the tree to a JSON file
+   * @param filePath - Path where to save the tree
+   */
+  save(filePath: string): void {
     if (!this.tree) {
       throw new Error('There is no tree to save.');
     }
-    // In a real implementation, you'd use fs.writeFileSync here
-    // fs.writeFileSync(path, JSON.stringify(this.tree));
-    console.log(`Tree would be saved to ${path}`);
+    
+    try {
+      // Convert the tree to a serializable format
+      const serializedTree = this.tree.toJSON();
+      
+      // Create directory if it doesn't exist
+      const dir = path.dirname(filePath);
+      if (dir && dir !== '.' && !fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      // Save to file with pretty formatting
+      fs.writeFileSync(filePath, JSON.stringify(serializedTree, null, 2), 'utf-8');
+      console.log(`Tree saved successfully to ${filePath}`);
+    } catch (error) {
+      console.error('Error saving tree:', error);
+      throw new Error(`Failed to save tree: ${error}`);
+    }
+  }
+
+  /**
+   * Load a tree from a JSON file
+   * @param filePath - Path to the saved tree file
+   * @returns The loaded Tree object
+   */
+  static load(filePath: string): Tree {
+    try {
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      const serializedTree: SerializedTree = JSON.parse(fileContent);
+      
+      // Reconstruct the tree from the serialized format
+      const tree = Tree.fromJSON(serializedTree);
+      console.log(`Tree loaded successfully from ${filePath}`);
+      return tree;
+    } catch (error) {
+      console.error('Error loading tree:', error);
+      throw new Error(`Failed to load tree: ${error}`);
+    }
+  }
+
+  /**
+   * Create a new RetrievalAugmentation instance from a saved tree file
+   * @param filePath - Path to the saved tree file
+   * @param config - Optional configuration for the RetrievalAugmentation instance
+   * @returns A new RetrievalAugmentation instance with the loaded tree
+   */
+  static fromFile(filePath: string, config?: RetrievalAugmentationConfig): RetrievalAugmentation {
+    const tree = RetrievalAugmentation.load(filePath);
+    return new RetrievalAugmentation(config, tree);
+  }
+
+  /**
+   * Get the current tree (useful for inspection or debugging)
+   */
+  getTree(): Tree | undefined {
+    return this.tree;
+  }
+
+  /**
+   * Check if a tree has been loaded or built
+   */
+  hasTree(): boolean {
+    return this.tree !== undefined;
   }
 }

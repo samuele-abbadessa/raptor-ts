@@ -1,4 +1,10 @@
-export { Node, Tree, Embeddings } from './tree_structures';
+export { 
+  Node, 
+  Tree, 
+  Embeddings,
+  SerializedNode,
+  SerializedTree 
+} from './tree_structures';
 export {
   BaseEmbeddingModel,
   BaseSummarizationModel,

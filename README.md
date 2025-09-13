@@ -16,6 +16,16 @@ RAPTOR introduces a novel approach to retrieval-augmented language models by con
 - 🔧 **Extensible Architecture**: Easily swap embedding, summarization, and QA models
 - 💾 **TypeScript Native**: Full type safety and modern JavaScript features
 
+## 🎯 Use Cases
+
+RAPTOR-TS is perfect for:
+
+- **Document Q&A Systems**: Build intelligent document search and question-answering systems
+- **Knowledge Base Management**: Organize and query large knowledge bases efficiently
+- **Research Tools**: Analyze and extract insights from academic papers or reports
+- **Content Summarization**: Generate multi-level summaries of long documents
+- **RAG Applications**: Enhance retrieval-augmented generation with hierarchical context
+
 ## 🚀 Installation
 
 ```bash
@@ -53,6 +63,81 @@ async function main() {
 main();
 ```
 
+## 📁 Saving and Loading Trees
+
+RAPTOR-TS allows you to save processed document trees to disk and reload them later, avoiding the need to reprocess documents and saving on API costs.
+
+### Saving a Tree
+
+After processing your documents, save the tree to a JSON file:
+
+```typescript
+import { RetrievalAugmentation } from 'raptor-ts';
+
+async function saveExample() {
+  const raptor = new RetrievalAugmentation();
+  
+  // Process your documents
+  await raptor.addDocuments("Your document text...");
+  
+  // Save the tree to a file
+  raptor.save('./my-tree.json');
+}
+```
+
+The saved file contains:
+- All node texts and indices
+- Node relationships (parent-child hierarchy)
+- All computed embeddings
+- Layer structure information
+- Tree metadata
+
+### Loading a Tree
+
+```typescript
+import { RetrievalAugmentation } from 'raptor-ts';
+
+// Load tree directly into a new instance
+const raptor = RetrievalAugmentation.fromFile('./my-tree.json');
+
+// Use immediately for questions
+const answer = await raptor.answerQuestion("Your question here?");
+```
+
+### File Format
+
+The saved JSON file has the following structure:
+
+```json
+{
+  "allNodes": [
+    [0, {
+      "text": "Node text content...",
+      "index": 0,
+      "children": [1, 2, 3],
+      "embeddings": {
+        "OpenAI": [0.123, 0.456, ...]
+      }
+    }]
+  ],
+  "rootNodes": [...],
+  "leafNodes": [...],
+  "numLayers": 3,
+  "layerToNodes": [
+    [0, [/* layer 0 nodes */]],
+    [1, [/* layer 1 nodes */]],
+    [2, [/* layer 2 nodes */]]
+  ]
+}
+```
+
+### Performance Considerations
+
+- **File Size**: Trees with large documents can produce files several MB in size due to embeddings
+- **Load Time**: Loading is much faster than rebuilding (milliseconds vs minutes)
+- **Memory Usage**: Loaded trees consume the same memory as newly built ones
+- **Compatibility**: Trees are compatible across different versions if the structure hasn't changed
+
 ### Advanced Configuration
 
 ```typescript
@@ -84,16 +169,6 @@ const config = new RetrievalAugmentationConfig({
 
 const raptor = new RetrievalAugmentation(config);
 ```
-
-## 🎯 Use Cases
-
-RAPTOR-TS is perfect for:
-
-- **Document Q&A Systems**: Build intelligent document search and question-answering systems
-- **Knowledge Base Management**: Organize and query large knowledge bases efficiently
-- **Research Tools**: Analyze and extract insights from academic papers or reports
-- **Content Summarization**: Generate multi-level summaries of long documents
-- **RAG Applications**: Enhance retrieval-augmented generation with hierarchical context
 
 ## 📚 API Reference
 
