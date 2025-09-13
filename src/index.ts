@@ -21,28 +21,3 @@ export {
   RetrievalAugmentationConfig 
 } from './retrieval_augmentation';
 export * from './utils';
-
-// Example usage function
-export async function example() {
-  // Import the main class
-  const { RetrievalAugmentation } = await import('./retrieval_augmentation');
-  
-  // Set your OpenAI API key
-  process.env.OPENAI_API_KEY = 'your-openai-api-key';
-  
-  // Initialize RAPTOR
-  const ra = new RetrievalAugmentation();
-  
-  // Add documents
-  const text = "Your document text here...";
-  await ra.addDocuments(text);
-  
-  // Answer questions
-  const answer = await ra.answerQuestion("Your question here?");
-  console.log("Answer:", answer);
-  
-  // Save the tree
-  ra.save("./my_tree.json");
-}
-
-example().catch(console.error);
