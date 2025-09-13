@@ -1,8 +1,8 @@
 // src/clustering.ts
 import { UMAP } from 'umap-js';
-import { GaussianMixture } from 'gaussian-mixture';
 import { encoding_for_model } from 'tiktoken';
 import { Node } from './tree_structures';
+import { GaussianMixture } from './gmm';
 
 export interface ClusteringAlgorithm {
   performClustering(
