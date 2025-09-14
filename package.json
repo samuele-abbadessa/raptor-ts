@@ -1,6 +1,6 @@
 {
   "name": "raptor-ts",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "TypeScript implementation of RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval)",
   "main": "dist/index.js",
   "module": "dist/index.js",
