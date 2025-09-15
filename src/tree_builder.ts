@@ -44,7 +44,7 @@ export class TreeBuilderConfig {
 
 export abstract class TreeBuilder {
   protected tokenizer: any;
-  protected maxTokens: number;
+  public maxTokens: number;
   protected numLayers: number;
   protected topK: number;
   protected threshold: number;

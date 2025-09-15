@@ -1,10 +1,25 @@
+// src/retrieval_augmentation.ts
+
 import { Tree, SerializedTree } from './tree_structures';
 import { TreeBuilder, TreeBuilderConfig } from './tree_builder';
 import { ClusterTreeBuilder, ClusterTreeConfig } from './cluster_tree_builder';
 import { TreeRetriever, TreeRetrieverConfig } from './tree_retriever';
 import { BaseQAModel, GPT3TurboQAModel } from './models';
+import { Document } from './document/types';
+import { DocumentStorage, FileSystemDocumentStorage } from './document/storage';
+import { CollectionStorage, FileSystemCollectionStorage } from './document/collection';
+import { ChunkingStrategy, TokenBasedChunking } from './document/chunking';
+import { IncrementalIndexer } from './indexing/incremental_indexer';
+import { FileSystemIndexingStateStorage } from './indexing/state_storage';
 import * as fs from 'fs';
 import * as path from 'path';
+
+export interface BatchAddOptions {
+  collection?: string;
+  chunkingStrategy?: ChunkingStrategy;
+  parallelProcessing?: boolean;
+  batchSize?: number;
+}
 
 export class RetrievalAugmentationConfig {
   treeBuilderConfig: TreeBuilderConfig | ClusterTreeConfig;
@@ -27,6 +42,10 @@ export class RetrievalAugmentation {
   private treeRetrieverConfig: TreeRetrieverConfig;
   private qaModel: BaseQAModel;
   private retriever: TreeRetriever | undefined;
+  private documentStorage: DocumentStorage;
+  private collectionStorage: CollectionStorage;
+  private incrementalIndexer: IncrementalIndexer;
+  private currentIndexState?: string;
 
   constructor(config?: RetrievalAugmentationConfig, tree?: Tree | string) {
     config = config || new RetrievalAugmentationConfig();
@@ -54,21 +73,181 @@ export class RetrievalAugmentation {
     this.treeRetrieverConfig = config.treeRetrieverConfig;
     this.qaModel = config.qaModel;
     
+    // Initialize storage systems
+    this.documentStorage = new FileSystemDocumentStorage();
+    this.collectionStorage = new FileSystemCollectionStorage();
+    this.incrementalIndexer = new IncrementalIndexer(
+      new FileSystemIndexingStateStorage(),
+      this.documentStorage,
+      this.treeBuilder
+    );
+    
     if (this.tree) {
       this.retriever = new TreeRetriever(this.treeRetrieverConfig, this.tree);
     }
   }
 
-  async addDocuments(docs: string): Promise<void> {
-    if (this.tree) {
-      // In a browser environment, you might use confirm()
-      // In Node.js, you'd use a different approach
-      console.warn('Warning: Overwriting existing tree.');
-      // const userConfirm = confirm('Warning: Overwriting existing tree. Continue?');
-      // if (!userConfirm) return;
+  // New method for adding documents with the document system
+  async addDocumentsBatch(
+    documents: Array<Omit<Document, 'id'>>,
+    options: BatchAddOptions = {}
+  ): Promise<string[]> {
+    const savedDocIds: string[] = [];
+    const savedDocs: Document[] = [];
+    
+    // Process in batches if specified
+    const batchSize = options.batchSize || documents.length;
+    
+    for (let i = 0; i < documents.length; i += batchSize) {
+      const batch = documents.slice(i, i + batchSize);
+      
+      // Save documents
+      const batchDocs = await Promise.all(
+        batch.map(async doc => {
+          const id = await this.documentStorage.save(doc);
+          savedDocIds.push(id);
+          const saved = await this.documentStorage.get(id);
+          if (!saved) throw new Error(`Failed to save document`);
+          return saved;
+        })
+      );
+      
+      savedDocs.push(...batchDocs);
     }
     
-    this.tree = await this.treeBuilder.buildFromText(docs);
+    // Add to collection if specified
+    if (options.collection) {
+      let collectionId = options.collection;
+      
+      // Check if it's a collection name or ID
+      if (!collectionId.startsWith('col_')) {
+        // Create new collection
+        collectionId = await this.collectionStorage.createCollection(
+          options.collection
+        );
+      }
+      
+      await this.collectionStorage.addDocumentsToCollection(
+        collectionId,
+        savedDocIds
+      );
+    }
+    
+    // Load or create indexing state
+    if (!this.currentIndexState) {
+      const state = await this.incrementalIndexer.loadOrCreateState();
+      this.currentIndexState = state.id;
+    }
+    
+    // Perform incremental indexing
+    this.tree = await this.incrementalIndexer.addDocuments(savedDocs);
+    
+    // Update retriever
+    this.retriever = new TreeRetriever(this.treeRetrieverConfig, this.tree);
+    
+    return savedDocIds;
+  }
+
+  // Backward compatibility method
+  async addDocuments(docs: string): Promise<void> {
+    if (this.tree) {
+      console.warn('Warning: Overwriting existing tree.');
+    }
+    
+    // Convert string to document format for backward compatibility
+    const document: Omit<Document, 'id'> = {
+      content: docs,
+      metadata: {
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        contentType: 'plain'
+      }
+    };
+    
+    await this.addDocumentsBatch([document]);
+  }
+
+  // Add a single document
+  async addDocument(
+    document: Omit<Document, 'id'>,
+    options: BatchAddOptions = {}
+  ): Promise<string> {
+    const ids = await this.addDocumentsBatch([document], options);
+    return ids[0];
+  }
+
+  // Add documents from a collection
+  async addCollection(
+    collectionId: string,
+    options: BatchAddOptions = {}
+  ): Promise<void> {
+    const collection = await this.collectionStorage.getCollection(collectionId);
+    if (!collection) throw new Error(`Collection ${collectionId} not found`);
+    
+    const documents = await Promise.all(
+      Array.from(collection.documentIds).map(id => 
+        this.documentStorage.get(id)
+      )
+    );
+    
+    const validDocs = documents.filter((d): d is Document => d !== null);
+    
+    // Load or create indexing state
+    if (!this.currentIndexState) {
+      const state = await this.incrementalIndexer.loadOrCreateState();
+      this.currentIndexState = state.id;
+    }
+    
+    // Use incremental indexer
+    this.tree = await this.incrementalIndexer.addDocuments(validDocs);
+    this.retriever = new TreeRetriever(this.treeRetrieverConfig, this.tree);
+  }
+
+  // Get indexing statistics
+  async getIndexingStats(): Promise<{
+    totalDocuments: number;
+    totalTokens: number;
+    lastUpdated: Date;
+    reindexThreshold: number;
+    documentsUntilReindex: number;
+  }> {
+    if (!this.currentIndexState) {
+      throw new Error('No indexing state available');
+    }
+    
+    const state = await this.incrementalIndexer.loadOrCreateState(
+      this.currentIndexState
+    );
+    
+    const threshold = state.config.reindexThresholdPercent;
+    const maxNewTokens = (state.totalTokens * threshold) / 100;
+    
+    // Estimate documents until reindex (rough estimate)
+    const avgTokensPerDoc = state.totalDocuments > 0 
+      ? state.totalTokens / state.totalDocuments 
+      : 100;
+    const documentsUntilReindex = Math.floor(maxNewTokens / avgTokensPerDoc);
+    
+    return {
+      totalDocuments: state.totalDocuments,
+      totalTokens: state.totalTokens,
+      lastUpdated: state.lastUpdatedAt,
+      reindexThreshold: threshold,
+      documentsUntilReindex
+    };
+  }
+
+  // Force reindexing
+  async forceReindex(): Promise<void> {
+    if (!this.currentIndexState) {
+      throw new Error('No indexing state available');
+    }
+    
+    const state = await this.incrementalIndexer.loadOrCreateState(
+      this.currentIndexState
+    );
+    
+    this.tree = await this.incrementalIndexer.addDocuments([], true);
     this.retriever = new TreeRetriever(this.treeRetrieverConfig, this.tree);
   }
 
